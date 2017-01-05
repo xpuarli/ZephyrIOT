@@ -531,6 +531,18 @@ int bt_sdp_discover_cancel(struct bt_conn *conn,
 
 /* Helper data & functions for SDP client to get and parse data from server */
 
+/** @brief Type for holding UUID item and related to it specific information. */
+struct bt_sdp_uuid_desc {
+	union {
+		struct bt_uuid    uuid;
+		struct bt_uuid_16 uuid16;
+		struct bt_uuid_32 uuid32;
+	      };
+	uint16_t                  attr_id;
+	uint8_t                  *params;
+	uint16_t                  params_len;
+};
+
 /** @brief Generic attribute item collector. */
 struct bt_sdp_attr_item {
 	uint16_t                  attr_id;
@@ -555,6 +567,44 @@ struct bt_sdp_attr_item {
  */
 int bt_sdp_get_attr(struct net_buf *buf, struct bt_sdp_attr_item *attr,
 		    uint16_t attr_id);
+
+/** @brief Get protocol descriptor UUID list.
+ *
+ *  Helper API extracting collection of UUID refered as ProtocolDescriptorList
+ *  and for every such found UUID stack node in the tree initializes helper
+ *  buffer containing data specific for given list item.
+ *
+ *  @param attr Buffer holding preselected attribute data.
+ *  @param pd Destination array to store found UUID with additional information
+ *  @param count Max destination array items count.
+ *
+ *  @return positive value to be number of collected UUIDs, 0 if no UUID found,
+ *  negative value if found parsing data mismatch or invalid destination
+ *  array.
+ */
+int bt_sdp_get_proto_list(const struct bt_sdp_attr_item *attr,
+			  struct bt_sdp_uuid_desc *pd, size_t count);
+
+/** @brief Protocols to be asked about specific parameters */
+enum bt_sdp_proto {
+	RFCOMM = BT_UUID_RFCOMM_VAL,
+	L2CAP  = BT_UUID_L2CAP_VAL,
+};
+
+/** @brief Give to user parameter value related to given stacked protocol UUID.
+ *
+ *  API extracts from protocol descriptors UUID item specific parameter
+ *  associated with given protocol or layer mapped to the UUID.
+ *
+ *  @param proto Known protocol to be checked like RFCOMM or L2CAP
+ *  @param pd Array holding found UUID with additional information
+ *  @param count Array items count.
+ *
+ *  @return positive value to be specific parameter associated with UUID, 0 if
+ *  UUID got no any parameters, negative value if invalid proto number applied
+ */
+int bt_sdp_get_proto_param(enum bt_sdp_proto proto, struct bt_sdp_uuid_desc *pd,
+			   size_t count);
 #ifdef __cplusplus
 }
 #endif

@@ -1082,3 +1082,179 @@ int bt_sdp_get_attr(struct net_buf *buf, struct bt_sdp_attr_item *attr,
 
 	return 0;
 }
+
+#define GET_CASE_SDP_SEQ(_arg, _ptr)  \
+	switch (_ptr[0]) {  \
+	case BT_SDP_SEQ8:  \
+		_arg = *(++_ptr);  \
+		_ptr++;  \
+		break;  \
+	case BT_SDP_SEQ16:  \
+		_arg = sys_get_be16(++_ptr);  \
+		_ptr += sizeof(uint16_t);  \
+		break;  \
+	case BT_SDP_SEQ32:  \
+		_arg = sys_get_be32(++_ptr);  \
+		_ptr += sizeof(uint32_t);  \
+		break;  \
+	default:  \
+		BT_ERR("Invalid/unhandled DTD 0x%02x", _ptr[0]);  \
+		return -EINVAL;  \
+	}
+
+static int sdp_get_uuid_list(uint16_t attr_id,
+			     const struct bt_sdp_attr_item *attr,
+			     struct bt_sdp_uuid_desc *pd, size_t len)
+{
+	uint8_t *p = attr->val;
+	uint32_t tot_len;
+	int i;
+
+	BT_ASSERT(p);
+
+	if (attr_id != attr->attr_id) {
+		BT_ERR("Mismatch checking attribute ID");
+		return -EINVAL;
+	}
+
+	/* Attribute value is a SEQ, get length of internal SEQ frame */
+	GET_CASE_SDP_SEQ(tot_len, p);
+
+	/* Check if all SEQ len + DTD byte itself overlaps attrib data len */
+	if (tot_len + sizeof(uint8_t) > attr->len) {
+		BT_ERR("Invalid buffer length");
+		return -EINVAL;
+	}
+
+	i = 0;
+	/* start reading stacked UUIDs in analyzed sequence */
+	while (p - attr->val < attr->len && i < len) {
+		uint32_t seq_len, left;
+
+		/* how long is current UUID's item and data associated after */
+		GET_CASE_SDP_SEQ(seq_len, p);
+		left = seq_len;
+
+		/* get and copy stacked UUID value */
+		switch (p[0]) {
+		case BT_SDP_UUID16:
+			memcpy(&pd[i].uuid16,
+			       BT_UUID_DECLARE_16(sys_get_be16(++p)),
+			       sizeof(struct bt_uuid_16));
+			p += sizeof(uint16_t);
+			left -= sizeof(uint16_t);
+			break;
+		case BT_SDP_UUID32:
+			memcpy(&pd[i].uuid32,
+			       BT_UUID_DECLARE_32(sys_get_be32(++p)),
+			       sizeof(struct bt_uuid_32));
+			p += sizeof(uint32_t);
+			left -= sizeof(uint32_t);
+			break;
+		default:
+			BT_ERR("Invalid/unhandled DTD 0x%02x\n", p[0]);
+			return -EINVAL;
+		}
+
+		/* include last p[0] size itself in decreasing */
+		left -= sizeof(p[0]);
+
+		/*
+		 * Initialize each UUID params item's helper buffer collecting
+		 * assigned to UUID parameters with proper offset address
+		 * pointing to parameter from original response buffer.
+		 * If there's bare UUID, there's no following parameter data.
+		 * The helper buffer length is set to leftover octets to read.
+		 */
+		pd[i].attr_id = attr_id;
+		pd[i].params_len = left;
+
+		if (!left) {
+			pd[i].params = NULL;
+		} else {
+			pd[i].params = p;
+		}
+
+		/*
+		 * skip already marked as left octets containing UUID specific
+		 * information
+		 */
+		p += left;
+		i++;
+	}
+
+	return i;
+}
+
+int bt_sdp_get_proto_list(const struct bt_sdp_attr_item *attr,
+			  struct bt_sdp_uuid_desc *pd, size_t count)
+{
+	return sdp_get_uuid_list(BT_SDP_ATTR_PROTO_DESC_LIST, attr, pd, count);
+}
+
+/*
+ * Helper extracting specific parameters associated with UUID node given in
+ * protocol descriptor list or profile descriptor list. Implementation, for now,
+ * checks for UUID nodes holding one parameter. Such associated parameters can
+ * be more.
+ */
+static int sdp_get_param_item(struct bt_sdp_uuid_desc *pd_item)
+{
+	const uint8_t *p = pd_item->params;
+	uint16_t param;
+
+	if (pd_item->params_len == 0) {
+		BT_DBG("UUID 0x%s got no params", bt_uuid_str(&pd_item->uuid));
+		return 0;
+	}
+
+	BT_ASSERT(p);
+
+	BT_DBG("getting UUID 0x%s params", bt_uuid_str(&pd_item->uuid));
+
+	switch (p[0]) {
+	case BT_SDP_UINT8:
+		param = (++p)[0];
+		p += sizeof(uint8_t);
+		break;
+	case BT_SDP_UINT16:
+		param = sys_get_be16(++p);
+		p += sizeof(uint16_t);
+		break;
+	default:
+		param = 0;
+		p += sizeof(uint8_t);
+		break;
+	}
+	/*
+	 * Check and return one found parameter associated with UUID. In such
+	 * case after getting parameter we should reach data buf end.
+	 */
+	if (p - pd_item->params == pd_item->params_len) {
+		return param;
+	}
+
+	return -EINVAL;
+}
+
+int bt_sdp_get_proto_param(enum bt_sdp_proto proto, struct bt_sdp_uuid_desc *pd,
+			   size_t count)
+{
+	int i;
+
+	if (proto != RFCOMM && proto != L2CAP) {
+		BT_ERR("Invalid value");
+		return -EINVAL;
+	}
+
+	for (i = 0; i < count; i++) {
+		if ((proto == BT_UUID_32(&pd[i].uuid)->val ||
+		     proto == BT_UUID_16(&pd[i].uuid)->val) &&
+		    pd[i].attr_id == BT_SDP_ATTR_PROTO_DESC_LIST) {
+			BT_DBG("protocol UUID 0x%04x found", proto);
+			return sdp_get_param_item(&pd[i]);
+		}
+	}
+
+	return -EINVAL;
+}
