@@ -298,6 +298,29 @@ static uint8_t sdp_hfp_ag_user(struct bt_conn *conn,
 		}
 
 		printk("HFP version param 0x%04x\n", res);
+
+		memset(&attr_data, 0, sizeof(attr_data));
+		memset(pdl, 0, ARRAY_SIZE(pdl) * sizeof(pdl[0]));
+
+		/*
+		 * Focus to get BT_SDP_ATTR_SUPPORTED_FEATURES attribute item to
+		 * get profile supported features mask.
+		 */
+		index = bt_sdp_get_attr(result->resp_buf, &attr_data,
+					BT_SDP_ATTR_SUPPORTED_FEATURES);
+		if (index <= 0) {
+			printk("Attribute 0x%04x not found\n",
+			       BT_SDP_ATTR_SUPPORTED_FEATURES);
+			goto done;
+		}
+
+		res = bt_sdp_get_features(&attr_data);
+		if (res <= 0) {
+			printk("HFP AG features not found, err %d\n", res);
+			goto done;
+		}
+
+		printk("HFP AG features param 0x%04x\n", res);
 	} else {
 		printk("No SDP HFP AG data from remote %s\n", addr);
 	}
