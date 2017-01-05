@@ -636,6 +636,17 @@ int bt_sdp_get_profile_list(const struct bt_sdp_attr_item *attr,
  */
 int bt_sdp_get_profile_version(int profile, struct bt_sdp_uuid_desc *pd,
 			       size_t count);
+
+/** @brief Get SupportedFeatures attibute value
+ *
+ *  Allows if exposed by remote retrieve SupportedFeature attribute.
+ *
+ *  @param attr Buffer of attribute value before preselected by getting
+ *  corresponding Attrribute ID.
+ *
+ *  @return positive value to be bitmask of features, negative in case any error
+ */
+int bt_sdp_get_features(const struct bt_sdp_attr_item *attr);
 #ifdef __cplusplus
 }
 #endif

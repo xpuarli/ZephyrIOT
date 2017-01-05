@@ -1281,3 +1281,59 @@ int bt_sdp_get_profile_version(int profile, struct bt_sdp_uuid_desc *pd,
 
 	return -EINVAL;
 }
+
+static int sdp_get_simple_uint_attr(const struct bt_sdp_attr_item *attr)
+{
+	uint8_t *p = attr->val;
+	int value;
+
+	BT_ASSERT(p);
+
+	switch (p[0]) {
+	case BT_SDP_UINT8:
+		if (attr->len < 2) {
+			BT_ERR("Invalid buffer length %u", attr->len);
+			return -EMSGSIZE;
+		}
+		value = (++p)[0];
+		break;
+	case BT_SDP_UINT16:
+		if (attr->len < 3) {
+			BT_ERR("Invalid buffer length %u", attr->len);
+			return -EMSGSIZE;
+		}
+		value = sys_get_be16(++p);
+		p += sizeof(uint16_t);
+		break;
+	case BT_SDP_UINT32:
+		if (attr->len < 5) {
+			BT_ERR("Invalid buffer length %u", attr->len);
+			return -EMSGSIZE;
+		}
+		value = sys_get_be32(++p);
+		p += sizeof(uint32_t);
+		break;
+	case BT_SDP_UINT64:
+	case BT_SDP_UINT128:
+	default:
+		BT_ERR("Invalid/unhandled DTD 0x%02x", p[0]);
+		return -EINVAL;
+	}
+
+	if (p - attr->val != attr->len) {
+		BT_ERR("Invalid buffer length %u", attr->len);
+		return -EMSGSIZE;
+	}
+
+	return value;
+}
+
+int bt_sdp_get_features(const struct bt_sdp_attr_item *attr)
+{
+	if (attr->attr_id != BT_SDP_ATTR_SUPPORTED_FEATURES) {
+		BT_ERR("Invalid attribute selected");
+		return -EINVAL;
+	}
+
+	return sdp_get_simple_uint_attr(attr);
+}
