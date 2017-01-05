@@ -229,8 +229,9 @@ static uint8_t sdp_hfp_ag_user(struct bt_conn *conn,
 			       struct bt_sdp_client_result *result)
 {
 	struct bt_sdp_attr_item attr_data;
+	struct bt_sdp_uuid_desc pdl[2];
 	char addr[BT_ADDR_STR_LEN];
-	int index;
+	int index, res;
 
 	conn_addr_str(conn, addr, sizeof(addr));
 
@@ -238,6 +239,9 @@ static uint8_t sdp_hfp_ag_user(struct bt_conn *conn,
 		printk("SDP HFP AG data@%p (len %u) hint %u from remote %s\n",
 			result->resp_buf, result->resp_buf->len,
 			result->next_record_hint, addr);
+
+		memset(&attr_data, 0, sizeof(attr_data));
+		memset(pdl, 0, ARRAY_SIZE(pdl) * sizeof(pdl[0]));
 
 		/*
 		 * Focus to get BT_SDP_ATTR_PROTO_DESC_LIST attribute item to
@@ -250,6 +254,20 @@ static uint8_t sdp_hfp_ag_user(struct bt_conn *conn,
 			       BT_SDP_ATTR_PROTO_DESC_LIST);
 			goto done;
 		}
+
+		res = bt_sdp_get_proto_list(&attr_data, pdl, ARRAY_SIZE(pdl));
+		if (res < 0) {
+			printk("SDP processing error %d\n", res);
+			goto done;
+		}
+
+		res = bt_sdp_get_proto_param(RFCOMM, pdl, ARRAY_SIZE(pdl));
+		if (res < 0) {
+			printk("HFP AG RFCOMM port not found, err %d\n", res);
+			goto done;
+		}
+
+		printk("HFP AG RFCOMM port param 0x%04x\n", res);
 	} else {
 		printk("No SDP HFP AG data from remote %s\n", addr);
 	}
