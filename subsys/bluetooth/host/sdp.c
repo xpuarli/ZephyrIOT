@@ -19,6 +19,7 @@
  */
 
 #include <errno.h>
+#include <sys/types.h>
 #include <misc/byteorder.h>
 
 #include <bluetooth/log.h>
@@ -820,6 +821,264 @@ int bt_sdp_discover(struct bt_conn *conn,
 	}
 
 	sys_slist_append(&session->reqs, (sys_snode_t *)&params->_node);
+
+	return 0;
+}
+
+/* Helper getting length of data determined by DTD for integers */
+static ssize_t sdp_get_int_len(const uint8_t *data, size_t len)
+{
+	BT_ASSERT(data);
+
+	switch (data[0]) {
+	case BT_SDP_DATA_NIL:
+		return sizeof(data[0]);
+	case BT_SDP_BOOL:
+	case BT_SDP_INT8:
+	case BT_SDP_UINT8:
+		if (sizeof(data[0]) + sizeof(uint8_t) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint8_t);
+	case BT_SDP_INT16:
+	case BT_SDP_UINT16:
+		if (sizeof(data[0]) + sizeof(uint16_t) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint16_t);
+	case BT_SDP_INT32:
+	case BT_SDP_UINT32:
+		if (sizeof(data[0]) + sizeof(uint32_t) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint32_t);
+	case BT_SDP_INT64:
+	case BT_SDP_UINT64:
+		if (sizeof(data[0]) + sizeof(uint64_t) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint64_t);
+	case BT_SDP_INT128:
+	case BT_SDP_UINT128:
+	default:
+		BT_ERR("Invalid/unhandled DTD 0x%02x", data[0]);
+		return -EINVAL;
+	}
+
+	BT_ERR("Too short buffer length %zu", len);
+	return -EMSGSIZE;
+}
+
+/* Helper getting length of data determined by DTD for UUID */
+static ssize_t sdp_get_uuid_len(const uint8_t *data, size_t len)
+{
+	BT_ASSERT(data);
+
+	switch (data[0]) {
+	case BT_SDP_UUID16:
+		if (sizeof(data[0]) + sizeof(uint16_t) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint16_t);
+	case BT_SDP_UUID32:
+		if (sizeof(data[0]) + sizeof(uint32_t) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint32_t);
+	case BT_SDP_UUID128:
+	default:
+		BT_ERR("Invalid/unhandled DTD 0x%02x", data[0]);
+		return -EINVAL;
+	}
+
+	BT_ERR("Too short buffer length %zu", len);
+	return -EMSGSIZE;
+}
+
+/* Helper getting length of data determined by DTD for strings */
+static ssize_t sdp_get_str_len(const uint8_t *data, size_t len)
+{
+	const uint8_t *pnext;
+
+	BT_ASSERT(data);
+
+	/* validate len for pnext safe use to read 8bit value */
+	if (len < (sizeof(data[0]) + sizeof(uint8_t))) {
+		goto err;
+	}
+
+	pnext = data + sizeof(uint8_t);
+
+	switch (data[0]) {
+	case BT_SDP_TEXT_STR8:
+	case BT_SDP_URL_STR8:
+		if ((sizeof(data[0]) + sizeof(uint8_t) + pnext[0]) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint8_t) + pnext[0];
+	case BT_SDP_TEXT_STR16:
+	case BT_SDP_URL_STR16:
+		/* validate len for pnext safe use to read 16bit value */
+		if (len < (sizeof(data[0]) + sizeof(uint16_t))) {
+			break;
+		}
+
+		if ((sizeof(data[0]) + sizeof(uint16_t) + sys_get_be16(pnext)) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint16_t) + sys_get_be16(pnext);
+	case BT_SDP_TEXT_STR32:
+	case BT_SDP_URL_STR32:
+	default:
+		BT_ERR("Invalid/unhandled DTD 0x%02x", data[0]);
+		return -EINVAL;
+	}
+err:
+	BT_ERR("Too short buffer length %zu", len);
+	return -EMSGSIZE;
+}
+
+/* Helper getting length of data determined by DTD for sequences */
+static ssize_t sdp_get_seq_len(const uint8_t *data, size_t len)
+{
+	const uint8_t *pnext;
+
+	BT_ASSERT(data);
+
+	/* validate len for pnext safe use to read 8bit bit value */
+	if (len < (sizeof(uint8_t) + sizeof(uint8_t))) {
+		goto err;
+	}
+
+	pnext = data + sizeof(uint8_t);
+
+	switch (data[0]) {
+	case BT_SDP_SEQ8:
+	case BT_SDP_ALT8:
+		if ((sizeof(data[0]) + sizeof(uint8_t) + pnext[0]) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint8_t) + pnext[0];
+	case BT_SDP_SEQ16:
+	case BT_SDP_ALT16:
+		/* validate len for pnext safe use to read 16bit value */
+		if (len < (sizeof(data[0]) + sizeof(uint16_t))) {
+			break;
+		}
+
+		if ((sizeof(data[0]) + sizeof(uint16_t) + sys_get_be16(pnext)) > len) {
+			break;
+		}
+
+		return sizeof(data[0]) + sizeof(uint16_t) + sys_get_be16(pnext);
+	case BT_SDP_SEQ32:
+	case BT_SDP_ALT32:
+	default:
+		BT_ERR("Invalid/unhandled DTD 0x%02x", data[0]);
+		return -EINVAL;
+	}
+err:
+	BT_ERR("Too short buffer length %zu", len);
+	return -EMSGSIZE;
+}
+
+/* Helper getting length of attribute value data */
+static ssize_t sdp_get_attr_value_len(const uint8_t *data, size_t len)
+{
+	BT_ASSERT(data);
+
+	BT_DBG("Attr val DTD 0x%02x", data[0]);
+
+	switch (data[0]) {
+	case BT_SDP_DATA_NIL:
+	case BT_SDP_BOOL:
+	case BT_SDP_UINT8:
+	case BT_SDP_UINT16:
+	case BT_SDP_UINT32:
+	case BT_SDP_UINT64:
+	case BT_SDP_UINT128:
+	case BT_SDP_INT8:
+	case BT_SDP_INT16:
+	case BT_SDP_INT32:
+	case BT_SDP_INT64:
+	case BT_SDP_INT128:
+		return sdp_get_int_len(data, len);
+	case BT_SDP_UUID16:
+	case BT_SDP_UUID32:
+	case BT_SDP_UUID128:
+		return sdp_get_uuid_len(data, len);
+	case BT_SDP_TEXT_STR8:
+	case BT_SDP_TEXT_STR16:
+	case BT_SDP_TEXT_STR32:
+	case BT_SDP_URL_STR8:
+	case BT_SDP_URL_STR16:
+	case BT_SDP_URL_STR32:
+		return sdp_get_str_len(data, len);
+	case BT_SDP_SEQ8:
+	case BT_SDP_SEQ16:
+	case BT_SDP_SEQ32:
+	case BT_SDP_ALT8:
+	case BT_SDP_ALT16:
+	case BT_SDP_ALT32:
+		return sdp_get_seq_len(data, len);
+	default:
+		BT_ERR("Unknown DTD 0x%02x", data[0]);
+		return -EINVAL;
+	}
+}
+
+int bt_sdp_get_attr(struct net_buf *buf, struct bt_sdp_attr_item *attr,
+		    uint16_t attr_id)
+{
+	uint8_t *data;
+	uint16_t id;
+
+	data = buf->data;
+	while (data - buf->data < buf->len) {
+		ssize_t dlen;
+
+		/* data need to point to attribute id descriptor field (DTD)*/
+		if (data[0] != BT_SDP_UINT16) {
+			BT_ERR("Invalid descriptor 0x%02x", data[0]);
+			return -EINVAL;
+		}
+
+		data += sizeof(uint8_t);
+		id = sys_get_be16(data);
+		BT_DBG("Attribute ID 0x%04x", id);
+		data += sizeof(uint16_t);
+
+		dlen = sdp_get_attr_value_len(data,
+					      buf->len - (data - buf->data));
+		if (dlen < 0) {
+			BT_ERR("Invalid attribute value data");
+			return -EINVAL;
+		}
+
+		if (id == attr_id) {
+			BT_DBG("Attribute ID 0x%04x Value found", id);
+			/*
+			 * Initialize attribute value buffer data using selected
+			 * data slice from original buffer.
+			 */
+			attr->val = data;
+			attr->len = dlen;
+			attr->attr_id = id;
+			/* Return location index of data from original buffer */
+			return data - buf->data;
+		}
+
+		data += dlen;
+	}
 
 	return 0;
 }

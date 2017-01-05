@@ -275,7 +275,6 @@ extern "C" {
 #define BT_SDP_URL_STR16       0x46
 #define BT_SDP_URL_STR32       0x47
 
-
 /** @brief SDP Generic Data Element Value. */
 struct bt_sdp_data_elem {
 	uint8_t *header; /* Type and size descriptor */
@@ -529,6 +528,33 @@ int bt_sdp_discover(struct bt_conn *conn,
 int bt_sdp_discover_cancel(struct bt_conn *conn,
 			   const struct bt_sdp_discover_params *params);
 
+
+/* Helper data & functions for SDP client to get and parse data from server */
+
+/** @brief Generic attribute item collector. */
+struct bt_sdp_attr_item {
+	uint16_t                  attr_id;
+	/* Keeps location of beginning attribute value in original buffer */
+	uint8_t                  *val;
+	/* Says about the length of attribute value */
+	uint16_t                  len;
+};
+
+/** @brief Get driven by Attribute ID attribute value data from original buffer.
+ *
+ *  Helper API locating and extracting to buffer Attribute Value data determined
+ *  by Attribute ID.
+ *
+ *  @param buf Original buffer getting response data from server.
+ *  @param attr Buffer holding selected attribute data.
+ *  @param attr_id Atribute ID identifier to be processed.
+ *
+ *  @return 0 if attribute not found, positive value pointing offset location of
+ *  found attribute data in original buffer, or negative if invalid Attribute ID
+ *  DTD.
+ */
+int bt_sdp_get_attr(struct net_buf *buf, struct bt_sdp_attr_item *attr,
+		    uint16_t attr_id);
 #ifdef __cplusplus
 }
 #endif
