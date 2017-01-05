@@ -605,6 +605,37 @@ enum bt_sdp_proto {
  */
 int bt_sdp_get_proto_param(enum bt_sdp_proto proto, struct bt_sdp_uuid_desc *pd,
 			   size_t count);
+
+/** @brief Get profiles descriptor UUID list.
+ *
+ *  Helper API extracting family of Bluetooth profiles UUID list the current
+ *  profile belongs to.
+ *
+ *  @param attr Buffer holding preselected attribute value data.
+ *  @param pd Destination array to store retrieved related profiles UUID and
+ *  additional parametrized information about it, like profile version.
+ *  @param count Destination array size.
+ *
+ *  @return positive value to be number of collected UUIDs, 0 if no UUID found,
+ *  negative value if found parsing data mismatch or invalid destination
+ *  array.
+ */
+int bt_sdp_get_profile_list(const struct bt_sdp_attr_item *attr,
+			    struct bt_sdp_uuid_desc *pd, size_t count);
+
+/** @brief Get profile version.
+ *
+ *  Helper API extracting remote profile version number.
+ *
+ *  @param profile Profile family identifier the profile belongs.
+ *  @param pd Array populated by retrieved related profiles UUID.
+ *  @param count Array size.
+ *
+ *  @return positive value to be profile version number, negative value if not
+ *  found.
+ */
+int bt_sdp_get_profile_version(int profile, struct bt_sdp_uuid_desc *pd,
+			       size_t count);
 #ifdef __cplusplus
 }
 #endif

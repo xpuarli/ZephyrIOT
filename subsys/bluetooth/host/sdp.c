@@ -1192,6 +1192,12 @@ int bt_sdp_get_proto_list(const struct bt_sdp_attr_item *attr,
 	return sdp_get_uuid_list(BT_SDP_ATTR_PROTO_DESC_LIST, attr, pd, count);
 }
 
+int bt_sdp_get_profile_list(const struct bt_sdp_attr_item *attr,
+			    struct bt_sdp_uuid_desc *pd, size_t len)
+{
+	return sdp_get_uuid_list(BT_SDP_ATTR_PROFILE_DESC_LIST, attr, pd, len);
+}
+
 /*
  * Helper extracting specific parameters associated with UUID node given in
  * protocol descriptor list or profile descriptor list. Implementation, for now,
@@ -1252,6 +1258,23 @@ int bt_sdp_get_proto_param(enum bt_sdp_proto proto, struct bt_sdp_uuid_desc *pd,
 		     proto == BT_UUID_16(&pd[i].uuid)->val) &&
 		    pd[i].attr_id == BT_SDP_ATTR_PROTO_DESC_LIST) {
 			BT_DBG("protocol UUID 0x%04x found", proto);
+			return sdp_get_param_item(&pd[i]);
+		}
+	}
+
+	return -EINVAL;
+}
+
+int bt_sdp_get_profile_version(int profile, struct bt_sdp_uuid_desc *pd,
+			       size_t count)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		if ((profile == BT_UUID_32(&pd[i].uuid)->val ||
+		     profile == BT_UUID_16(&pd[i].uuid)->val) &&
+		    pd[i].attr_id == BT_SDP_ATTR_PROFILE_DESC_LIST) {
+			BT_DBG("profile UUID 0x%04x found", profile);
 			return sdp_get_param_item(&pd[i]);
 		}
 	}
