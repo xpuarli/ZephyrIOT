@@ -65,6 +65,9 @@ NET_BUF_POOL_DEFINE(data_pool, 1, DATA_MTU, BT_BUF_USER_DATA_MIN, NULL);
 NET_BUF_POOL_DEFINE(data_bredr_pool, 1, DATA_BREDR_MTU, BT_BUF_USER_DATA_MIN,
 		    NULL);
 
+#define SDP_CLIENT_USER_BUF_LEN		512
+NET_BUF_POOL_DEFINE(sdp_client_pool, CONFIG_BLUETOOTH_MAX_CONN,
+		    SDP_CLIENT_USER_BUF_LEN, BT_BUF_USER_DATA_MIN, NULL);
 #endif /* CONFIG_BLUETOOTH_BREDR */
 
 #if defined(CONFIG_BLUETOOTH_RFCOMM)
@@ -221,6 +224,48 @@ static void conn_addr_str(struct bt_conn *conn, char *addr, size_t len)
 	}
 }
 
+#if defined(CONFIG_BLUETOOTH_BREDR)
+static uint8_t sdp_hfp_ag_user(struct bt_conn *conn,
+			       struct bt_sdp_client_result *result)
+{
+	struct bt_sdp_attr_item attr_data;
+	char addr[BT_ADDR_STR_LEN];
+	int index;
+
+	conn_addr_str(conn, addr, sizeof(addr));
+
+	if (result) {
+		printk("SDP HFP AG data@%p (len %u) hint %u from remote %s\n",
+			result->resp_buf, result->resp_buf->len,
+			result->next_record_hint, addr);
+
+		/*
+		 * Focus to get BT_SDP_ATTR_PROTO_DESC_LIST attribute item to
+		 * get RFCOMM port number.
+		 */
+		index = bt_sdp_get_attr(result->resp_buf, &attr_data,
+					BT_SDP_ATTR_PROTO_DESC_LIST);
+		if (index <= 0) {
+			printk("Attribute 0x%04x not found\n",
+			       BT_SDP_ATTR_PROTO_DESC_LIST);
+			goto done;
+		}
+	} else {
+		printk("No SDP HFP AG data from remote %s\n", addr);
+	}
+done:
+	return BT_SDP_DISCOVER_UUID_CONTINUE;
+}
+
+static struct bt_sdp_discover_params discov_hfpag = {
+	.uuid = BT_UUID_DECLARE_16(BT_SDP_HANDSFREE_AGW_SVCLASS),
+	.func = sdp_hfp_ag_user,
+	.pool = &sdp_client_pool,
+};
+
+static struct bt_sdp_discover_params discov;
+#endif
+
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -238,6 +283,16 @@ static void connected(struct bt_conn *conn, uint8_t err)
 		default_conn = bt_conn_ref(conn);
 	}
 
+#if defined(CONFIG_BLUETOOTH_BREDR)
+	int res;
+
+	res = bt_sdp_discover(default_conn, &discov);
+	if (res) {
+		printk("SDP discovery failed: result %d\n", res);
+	} else {
+		printk("SDP discovery started\n");
+	}
+#endif
 done:
 	/* clear connection reference for sec mode 3 pairing */
 	if (pairing_conn) {
@@ -2231,6 +2286,34 @@ static int cmd_bredr_oob(int argc, char *argv[])
 
 	return 0;
 }
+
+static int cmd_sdp_client_register(int argc, char *argv[])
+{
+	int err = 0;
+	const char *action;
+
+	if (argc < 2) {
+		return -EINVAL;
+	}
+
+	action = argv[1];
+
+	if (!strcmp(action, "HFPAG")) {
+		discov = discov_hfpag;
+	} else {
+		err = -EINVAL;
+	}
+
+	if (err) {
+		printk("SDP UUID to resolve not valid (err %d)\n", err);
+		printk("Supported UUID is \'HFPAG\' only\n");
+		return err;
+	}
+
+	printk("SDP UUID \'%s\' to resolve registered\n", action);
+
+	return 0;
+}
 #endif
 
 #define HELP_NONE "[none]"
@@ -2297,6 +2380,7 @@ static const struct shell_cmd commands[] = {
 	  "<value: on, off> [length: 1-48] [mode: limited]"  },
 	{ "br-l2cap-register", cmd_bredr_l2cap_register, "<psm>" },
 	{ "br-oob", cmd_bredr_oob },
+	{ "sdp-find-record", cmd_sdp_client_register, "<UUID>" },
 #if defined(CONFIG_BLUETOOTH_RFCOMM)
 	{ "br-rfcomm-register", cmd_bredr_rfcomm_register },
 	{ "br-rfcomm-connect", cmd_rfcomm_connect, "<channel>" },
