@@ -328,9 +328,118 @@ done:
 	return BT_SDP_DISCOVER_UUID_CONTINUE;
 }
 
+static uint8_t sdp_a2src_user(struct bt_conn *conn,
+			      struct bt_sdp_client_result *result)
+{
+	struct bt_sdp_attr_item attr_data;
+	struct bt_sdp_uuid_desc pdl[2];
+	char addr[BT_ADDR_STR_LEN];
+	int index, res;
+
+	conn_addr_str(conn, addr, sizeof(addr));
+
+	if (result) {
+		printk("SDP A2SRC data@%p (len %u) hint %u from remote %s\n",
+			result->resp_buf, result->resp_buf->len,
+			result->next_record_hint, addr);
+
+		memset(&attr_data, 0, sizeof(attr_data));
+		memset(pdl, 0, ARRAY_SIZE(pdl) * sizeof(pdl[0]));
+
+		/*
+		 * Focus to get BT_SDP_ATTR_PROTO_DESC_LIST attribute item to
+		 * get A2SRC PSM number.
+		 */
+		index = bt_sdp_get_attr(result->resp_buf, &attr_data,
+					BT_SDP_ATTR_PROTO_DESC_LIST);
+		if (index <= 0) {
+			printk("Attribute 0x%04x not found\n",
+			       BT_SDP_ATTR_PROTO_DESC_LIST);
+			goto done;
+		}
+
+		res = bt_sdp_get_proto_list(&attr_data, pdl, ARRAY_SIZE(pdl));
+		if (res < 0) {
+			printk("SDP processing error %d\n", res);
+			goto done;
+		}
+
+		res = bt_sdp_get_proto_param(L2CAP, pdl, ARRAY_SIZE(pdl));
+		if (res < 0) {
+			printk("A2SRC PSM not found, err %d\n", res);
+			goto done;
+		}
+
+		printk("A2SRC PSM param 0x%04x\n", res);
+
+		memset(&attr_data, 0, sizeof(attr_data));
+		memset(pdl, 0, ARRAY_SIZE(pdl) * sizeof(pdl[0]));
+
+		/*
+		 * Focus to get BT_SDP_ATTR_PROFILE_DESC_LIST attribute item to
+		 * get profile version number.
+		 */
+		index = bt_sdp_get_attr(result->resp_buf, &attr_data,
+					BT_SDP_ATTR_PROFILE_DESC_LIST);
+		if (index <= 0) {
+			printk("Attribute 0x%04x not found\n",
+			       BT_SDP_ATTR_PROFILE_DESC_LIST);
+			goto done;
+		}
+
+		res = bt_sdp_get_profile_list(&attr_data, pdl, ARRAY_SIZE(pdl));
+		if (res < 0) {
+			printk("SDP protocol parsing error %d\n", res);
+			goto done;
+		}
+
+		res = bt_sdp_get_profile_version(BT_SDP_ADVANCED_AUDIO_SVCLASS,
+						 pdl, ARRAY_SIZE(pdl));
+		if (res < 0) {
+			printk("A2SRC version not found, err %d\n", res);
+			goto done;
+		}
+
+		printk("A2SRC version param 0x%04x\n", res);
+
+		memset(&attr_data, 0, sizeof(attr_data));
+		memset(pdl, 0, ARRAY_SIZE(pdl) * sizeof(pdl[0]));
+
+		/*
+		 * Focus to get BT_SDP_ATTR_SUPPORTED_FEATURES attribute item to
+		 * get profile supported features mask.
+		 */
+		index = bt_sdp_get_attr(result->resp_buf, &attr_data,
+					BT_SDP_ATTR_SUPPORTED_FEATURES);
+		if (index <= 0) {
+			printk("Attribute 0x%04x not found\n",
+			       BT_SDP_ATTR_SUPPORTED_FEATURES);
+			goto done;
+		}
+
+		res = bt_sdp_get_features(&attr_data);
+		if (res <= 0) {
+			printk("A2SRC features not found, err %d\n", res);
+			goto done;
+		}
+
+		printk("A2SRC features param 0x%04x\n", res);
+	} else {
+		printk("No SDP A2SRC data from remote %s\n", addr);
+	}
+done:
+	return BT_SDP_DISCOVER_UUID_CONTINUE;
+}
+
 static struct bt_sdp_discover_params discov_hfpag = {
 	.uuid = BT_UUID_DECLARE_16(BT_SDP_HANDSFREE_AGW_SVCLASS),
 	.func = sdp_hfp_ag_user,
+	.pool = &sdp_client_pool,
+};
+
+static struct bt_sdp_discover_params discov_a2src = {
+	.uuid = BT_UUID_DECLARE_16(BT_SDP_AUDIO_SOURCE_SVCLASS),
+	.func = sdp_a2src_user,
 	.pool = &sdp_client_pool,
 };
 
@@ -2371,13 +2480,15 @@ static int cmd_sdp_client_register(int argc, char *argv[])
 
 	if (!strcmp(action, "HFPAG")) {
 		discov = discov_hfpag;
+	} else if (!strcmp(action, "A2SRC")) {
+		discov = discov_a2src;
 	} else {
 		err = -EINVAL;
 	}
 
 	if (err) {
 		printk("SDP UUID to resolve not valid (err %d)\n", err);
-		printk("Supported UUID is \'HFPAG\' only\n");
+		printk("Supported UUID are \'HFPAG\' \'A2SRC\' only\n");
 		return err;
 	}
 
